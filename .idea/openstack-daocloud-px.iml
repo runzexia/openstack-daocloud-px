@@ -8,7 +8,7 @@
   <component name="TemplatesService">
     <option name="TEMPLATE_FOLDERS">
       <list>
-        <option value="$MODULE_DIR$/releasenotes/source/_templates" />
+        <option value="$MODULE_DIR$/nova/releasenotes/source/_templates" />
       </list>
     </option>
   </component>
