@@ -17,8 +17,8 @@ import os
 from oslo_concurrency import lockutils
 from oslo_log import log as logging
 
+from os_brick.i18n import _, _LE
 from os_brick import exception
-from os_brick.i18n import _
 from os_brick.initiator.connectors import base
 from os_brick import utils
 
@@ -45,8 +45,8 @@ class HuaweiStorHyperConnector(base.BaseLinuxConnector):
                       self.cli_path)
         if not os.path.isfile(self.cli_path):
             self.iscliexist = False
-            LOG.error('SDS CLI file not found, '
-                      'HuaweiStorHyperConnector init failed.')
+            LOG.error(_LE('SDS CLI file not found, '
+                          'HuaweiStorHyperConnector init failed.'))
         super(HuaweiStorHyperConnector, self).__init__(root_helper,
                                                        driver=driver,
                                                        *args, **kwargs)
@@ -117,8 +117,7 @@ class HuaweiStorHyperConnector(base.BaseLinuxConnector):
 
     @utils.trace
     @synchronized('connect_volume')
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """Disconnect a volume from the local host.
 
         :param connection_properties: The dictionary that describes all
@@ -169,7 +168,7 @@ class HuaweiStorHyperConnector(base.BaseLinuxConnector):
         LOG.debug('%(method)s volume returns %(analyse_result)s.',
                   {'method': method, 'analyse_result': analyse_result})
         if clilog:
-            LOG.error("SDS CLI output some log: %s.", clilog)
+            LOG.error(_LE("SDS CLI output some log: %s."), clilog)
         return analyse_result
 
     def _analyze_output(self, out):

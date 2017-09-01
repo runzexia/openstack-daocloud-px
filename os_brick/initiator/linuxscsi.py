@@ -16,7 +16,6 @@
 
    Note, this is not iSCSI.
 """
-import glob
 import os
 import re
 import six
@@ -26,6 +25,7 @@ from oslo_log import log as logging
 
 from os_brick import exception
 from os_brick import executor
+from os_brick.i18n import _LE, _LI, _LW
 from os_brick.privileged import rootwrap as priv_rootwrap
 from os_brick import utils
 
@@ -39,9 +39,6 @@ MULTIPATH_DEVICE_ACTIONS = ['unchanged:', 'reject:', 'reload:',
 
 
 class LinuxSCSI(executor.Executor):
-    # As found in drivers/scsi/scsi_lib.c
-    WWN_TYPES = {'t10.': '1', 'eui.': '2', 'naa.': '3'}
-
     def echo_scsi_command(self, path, content):
         """Used to echo strings to scsi subsystem."""
 
@@ -60,32 +57,30 @@ class LinuxSCSI(executor.Executor):
         else:
             return None
 
-    def remove_scsi_device(self, device, force=False, exc=None):
+    def remove_scsi_device(self, device):
         """Removes a scsi device based upon /dev/sdX name."""
+
         path = "/sys/block/%s/device/delete" % device.replace("/dev/", "")
         if os.path.exists(path):
-            exc = exception.ExceptionChainer() if exc is None else exc
             # flush any outstanding IO first
-            with exc.context(force, 'Flushing %s failed', device):
-                self.flush_device_io(device)
+            self.flush_device_io(device)
 
             LOG.debug("Remove SCSI device %(device)s with %(path)s",
                       {'device': device, 'path': path})
-            with exc.context(force, 'Removing %s failed', device):
-                self.echo_scsi_command(path, "1")
+            self.echo_scsi_command(path, "1")
 
-    @utils.retry(exceptions=exception.VolumePathNotRemoved)
-    def wait_for_volumes_removal(self, volumes_names):
-        """Wait for device paths to be removed from the system."""
-        str_names = ', '.join(volumes_names)
-        LOG.debug('Checking to see if SCSI volumes %s have been removed.',
-                  str_names)
-        exist = [volume_name for volume_name in volumes_names
-                 if os.path.exists('/dev/' + volume_name)]
-        if exist:
-            LOG.debug('%s still exist.', ', '.join(exist))
-            raise exception.VolumePathNotRemoved(volume_path=exist)
-        LOG.debug("SCSI volumes %s have been removed.", str_names)
+    @utils.retry(exceptions=exception.VolumePathNotRemoved, retries=3,
+                 backoff_rate=2)
+    def wait_for_volume_removal(self, volume_path):
+        """This is used to ensure that volumes are gone."""
+        LOG.debug("Checking to see if SCSI volume %s has been removed.",
+                  volume_path)
+        if os.path.exists(volume_path):
+            LOG.debug("%(path)s still exists.", {'path': volume_path})
+            raise exception.VolumePathNotRemoved(
+                volume_path=volume_path)
+        else:
+            LOG.debug("SCSI volume %s has been removed.", volume_path)
 
     def get_device_info(self, device):
         (out, _err) = self._execute('sg_scan', device, run_as_root=True,
@@ -106,41 +101,6 @@ class LinuxSCSI(executor.Executor):
 
         return dev_info
 
-    def get_sysfs_wwn(self, device_names):
-        """Return the wwid from sysfs in any of devices in udev format."""
-        wwid = self.get_sysfs_wwid(device_names)
-        glob_str = '/dev/disk/by-id/scsi-'
-        wwn_paths = glob.glob(glob_str + '*')
-        # If we don't have multiple designators on page 0x83
-        if wwid and glob_str + wwid in wwn_paths:
-            return wwid
-
-        # If we have multiple designators follow the symlinks
-        for wwn_path in wwn_paths:
-            try:
-                if os.path.islink(wwn_path) and os.stat(wwn_path):
-                    path = os.path.realpath(wwn_path)
-                    if path.startswith('/dev/') and path[5:] in device_names:
-                        return wwn_path[len(glob_str):]
-            except OSError:
-                continue
-        return ''
-
-    def get_sysfs_wwid(self, device_names):
-        """Return the wwid from sysfs in any of devices in udev format."""
-        for device_name in device_names:
-            try:
-                with open('/sys/block/%s/device/wwid' % device_name) as f:
-                    wwid = f.read().strip()
-            except IOError:
-                continue
-            # The sysfs wwid has the wwn type in string format as a prefix,
-            # but udev uses its numerical representation as returned by
-            # scsi_id's page 0x83, so we need to map it
-            udev_wwid = self.WWN_TYPES.get(wwid[:4], '8') + wwid[4:]
-            return udev_wwid
-        return ''
-
     def get_scsi_wwn(self, path):
         """Read the WWN from page 0x83 value for a SCSI device."""
 
@@ -158,7 +118,7 @@ class LinuxSCSI(executor.Executor):
             execute('multipathd', 'show', 'status',
                     run_as_root=True, root_helper=root_helper)
         except putils.ProcessExecutionError as err:
-            LOG.error('multipathd is not running: exit code %(err)s',
+            LOG.error(_LE('multipathd is not running: exit code %(err)s'),
                       {'err': err.exit_code})
             if enforce_multipath:
                 raise
@@ -166,104 +126,46 @@ class LinuxSCSI(executor.Executor):
 
         return True
 
-    def get_dm_name(self, dm):
-        """Get the Device map name given the device name of the dm on sysfs.
-
-        :param dm: Device map name as seen in sysfs. ie: 'dm-0'
-        :returns: String with the name, or empty string if not available.
-                  ie: '36e843b658476b7ed5bc1d4d10d9b1fde'
+    def remove_multipath_device(self, device):
+        """This removes LUNs associated with a multipath device
+        and the multipath device itself.
         """
-        try:
-            with open('/sys/block/' + dm + '/dm/name') as f:
-                return f.read().strip()
-        except IOError:
-            return ''
 
-    def find_sysfs_multipath_dm(self, device_names):
-        """Find the dm device name given a list of device names
-
-        :param device_names: Iterable with device names, not paths. ie: ['sda']
-        :returns: String with the dm name or None if not found. ie: 'dm-0'
-        """
-        glob_str = '/sys/block/%s/holders/dm-*'
-        for dev_name in device_names:
-            dms = glob.glob(glob_str % dev_name)
-            if dms:
-                __, device_name, __, dm = dms[0].rsplit('/', 3)
-                return dm
-        return None
-
-    def remove_connection(self, devices_names, is_multipath, force=False,
-                          exc=None):
-        """Remove LUNs and multipath associated with devices names.
-
-        :param devices_names: Iterable with real device names ('sda', 'sdb')
-        :param is_multipath: Whether this is a multipath connection or not
-        :param force: Whether to forcefully disconnect even if flush fails.
-        :param exc: ExceptionChainer where to add exceptions if forcing
-        :returns: Multipath device map name if found and not flushed
-        """
-        if not devices_names:
-            return
-        multipath_name = None
-        exc = exception.ExceptionChainer() if exc is None else exc
-        LOG.debug('Removing %(type)s devices %(devices)s',
-                  {'type': 'multipathed' if is_multipath else 'single pathed',
-                   'devices': ', '.join(devices_names)})
-
-        if is_multipath:
-            multipath_dm = self.find_sysfs_multipath_dm(devices_names)
-            multipath_name = multipath_dm and self.get_dm_name(multipath_dm)
-            if multipath_name:
-                with exc.context(force, 'Flushing %s failed', multipath_name):
-                    self.flush_multipath_device(multipath_name)
-                    multipath_name = None
-
-        for device_name in devices_names:
-            self.remove_scsi_device('/dev/' + device_name, force, exc)
-
-        # Wait until the symlinks are removed
-        with exc.context(force, 'Some devices remain from %s', devices_names):
-            try:
-                self.wait_for_volumes_removal(devices_names)
-            finally:
-                # Since we use /dev/disk/by-id/scsi- links to get the wwn we
-                # must ensure they are always removed.
-                self._remove_scsi_symlinks(devices_names)
-        return multipath_name
-
-    def _remove_scsi_symlinks(self, devices_names):
-        devices = ['/dev/' + dev for dev in devices_names]
-        links = glob.glob('/dev/disk/by-id/scsi-*')
-        unlink = [link for link in links
-                  if os.path.realpath(link) in devices]
-        if unlink:
-            priv_rootwrap.unlink_root(no_errors=True, *unlink)
+        LOG.debug("remove multipath device %s", device)
+        mpath_dev = self.find_multipath_device(device)
+        if mpath_dev:
+            self.flush_multipath_device(mpath_dev['id'])
+            devices = mpath_dev['devices']
+            LOG.debug("multipath LUNs to remove %s", devices)
+            for device in devices:
+                self.remove_scsi_device(device['device'])
 
     def flush_device_io(self, device):
         """This is used to flush any remaining IO in the buffers."""
-        if os.path.exists(device):
-            try:
-                # NOTE(geguileo): With 30% connection error rates flush can get
-                # stuck, set timeout to prevent it from hanging here forever.
-                # Retry twice after 20 and 40 seconds.
-                LOG.debug("Flushing IO for device %s", device)
-                self._execute('blockdev', '--flushbufs', device,
-                              run_as_root=True, attempts=3, timeout=300,
-                              interval=10, root_helper=self._root_helper)
-            except putils.ProcessExecutionError as exc:
-                LOG.warning("Failed to flush IO buffers prior to removing "
-                            "device: %(code)s", {'code': exc.exit_code})
-                raise
+        try:
+            LOG.debug("Flushing IO for device %s", device)
+            self._execute('blockdev', '--flushbufs', device, run_as_root=True,
+                          root_helper=self._root_helper)
+        except putils.ProcessExecutionError as exc:
+            LOG.warning(_LW("Failed to flush IO buffers prior to removing "
+                            "device: %(code)s"), {'code': exc.exit_code})
 
-    def flush_multipath_device(self, device_map_name):
-        LOG.debug("Flush multipath device %s", device_map_name)
-        # NOTE(geguileo): With 30% connection error rates flush can get stuck,
-        # set timeout to prevent it from hanging here forever.  Retry twice
-        # after 20 and 40 seconds.
-        self._execute('multipath', '-f', device_map_name, run_as_root=True,
-                      attempts=3, timeout=300, interval=10,
-                      root_helper=self._root_helper)
+    def flush_multipath_device(self, device):
+        try:
+            LOG.debug("Flush multipath device %s", device)
+            self._execute('multipath', '-f', device, run_as_root=True,
+                          root_helper=self._root_helper)
+        except putils.ProcessExecutionError as exc:
+            LOG.warning(_LW("multipath call failed exit %(code)s"),
+                        {'code': exc.exit_code})
+
+    def flush_multipath_devices(self):
+        try:
+            self._execute('multipath', '-F', run_as_root=True,
+                          root_helper=self._root_helper)
+        except putils.ProcessExecutionError as exc:
+            LOG.warning(_LW("multipath call failed exit %(code)s"),
+                        {'code': exc.exit_code})
 
     @utils.retry(exceptions=exception.VolumeDeviceNotFound)
     def wait_for_path(self, volume_path):
@@ -330,7 +232,7 @@ class LinuxSCSI(executor.Executor):
             /dev/mapper/<WWN>
 
         """
-        LOG.info("Find Multipath device file for volume WWN %(wwn)s",
+        LOG.info(_LI("Find Multipath device file for volume WWN %(wwn)s"),
                  {'wwn': wwn})
         # First look for the common path
         wwn_dict = {'wwn': wwn}
@@ -351,8 +253,8 @@ class LinuxSCSI(executor.Executor):
             pass
 
         # couldn't find a path
-        LOG.warning("couldn't find a valid multipath device path for "
-                    "%(wwn)s", wwn_dict)
+        LOG.warning(_LW("couldn't find a valid multipath device path for "
+                        "%(wwn)s"), wwn_dict)
         return None
 
     def find_multipath_device(self, device):
@@ -373,7 +275,7 @@ class LinuxSCSI(executor.Executor):
                                         run_as_root=True,
                                         root_helper=self._root_helper)
         except putils.ProcessExecutionError as exc:
-            LOG.warning("multipath call failed exit %(code)s",
+            LOG.warning(_LW("multipath call failed exit %(code)s"),
                         {'code': exc.exit_code})
             raise exception.CommandExecutionFailed(
                 cmd='multipath -l %s' % device)
@@ -396,7 +298,7 @@ class LinuxSCSI(executor.Executor):
                 try:
                     os.stat(mdev)
                 except OSError:
-                    LOG.warning("Couldn't find multipath device %s",
+                    LOG.warning(_LW("Couldn't find multipath device %s"),
                                 mdev)
                     return None
 
@@ -503,17 +405,18 @@ class LinuxSCSI(executor.Executor):
             self.multipath_reconfigure()
 
             size = self.get_device_size(mpath_device)
-            LOG.info("mpath(%(device)s) current size %(size)s",
+            LOG.info(_LI("mpath(%(device)s) current size %(size)s"),
                      {'device': mpath_device, 'size': size})
             result = self.multipath_resize_map(scsi_wwn)
             if 'fail' in result:
-                LOG.error("Multipathd failed to update the size mapping of "
-                          "multipath device %(scsi_wwn)s volume %(volume)s",
-                          {'scsi_wwn': scsi_wwn, 'volume': volume_paths})
+                msg = (_LI("Multipathd failed to update the size mapping of "
+                           "multipath device %(scsi_wwn)s volume %(volume)s") %
+                       {'scsi_wwn': scsi_wwn, 'volume': volume_paths})
+                LOG.error(msg)
                 return None
 
             new_size = self.get_device_size(mpath_device)
-            LOG.info("mpath(%(device)s) new size %(size)s",
+            LOG.info(_LI("mpath(%(device)s) new size %(size)s"),
                      {'device': mpath_device, 'size': new_size})
 
         return new_size
@@ -529,89 +432,8 @@ class LinuxSCSI(executor.Executor):
         return processed
 
     def _format_lun_id(self, lun_id):
-        # make sure lun_id is an int
-        lun_id = int(lun_id)
         if lun_id < 256:
             return lun_id
         else:
             return ("0x%04x%04x00000000" %
                     (lun_id & 0xffff, lun_id >> 16 & 0xffff))
-
-    def get_hctl(self, session, lun):
-        """Given an iSCSI session return the host, channel, target, and lun."""
-        glob_str = '/sys/class/iscsi_host/host*/device/session' + session
-        paths = glob.glob(glob_str + '/target*')
-        if paths:
-            __, channel, target = os.path.split(paths[0])[1].split(':')
-        # Check if we can get the host
-        else:
-            target = channel = '-'
-            paths = glob.glob(glob_str)
-
-        if not paths:
-            LOG.debug('No hctl found on session %s with lun %s', session, lun)
-            return None
-
-        # Extract the host number from the path
-        host = paths[0][26:paths[0].index('/', 26)]
-        res = (host, channel, target, lun)
-        LOG.debug('HCTL %s found on session %s with lun %s', res, session, lun)
-        return res
-
-    def device_name_by_hctl(self, session, hctl):
-        """Find the device name given a session and the hctl.
-
-        :param session: A string with the session number
-        "param hctl: An iterable with the host, channel, target, and lun as
-                     passed to scan.  ie: ('5', '-', '-', '0')
-        """
-        if '-' in hctl:
-            hctl = ['*' if x == '-' else x for x in hctl]
-        path = ('/sys/class/scsi_host/host%(h)s/device/session%(s)s/target'
-                '%(h)s:%(c)s:%(t)s/%(h)s:%(c)s:%(t)s:%(l)s/block/*' %
-                {'h': hctl[0], 'c': hctl[1], 't': hctl[2], 'l': hctl[3],
-                 's': session})
-        # Sort devices and return the first so we don't return a partition
-        devices = sorted(glob.glob(path))
-        device = os.path.split(devices[0])[1] if devices else None
-        LOG.debug('Searching for a device in session %s and hctl %s yield: %s',
-                  session, hctl, device)
-        return device
-
-    def scan_iscsi(self, host, channel='-', target='-', lun='-'):
-        """Send an iSCSI scan request given the host and optionally the ctl."""
-        LOG.debug('Scanning host %(host)s c: %(channel)s, '
-                  't: %(target)s, l: %(lun)s)',
-                  {'host': host, 'channel': channel,
-                   'target': target, 'lun': lun})
-        self.echo_scsi_command('/sys/class/scsi_host/host%s/scan' % host,
-                               '%(c)s %(t)s %(l)s' % {'c': channel,
-                                                      't': target,
-                                                      'l': lun})
-
-    def multipath_add_wwid(self, wwid):
-        """Add a wwid to the list of know multipath wwids.
-
-        This has the effect of multipathd being willing to create a dm for a
-        multipath even when there's only 1 device.
-        """
-        out, err = self._execute('multipath', '-a', wwid,
-                                 run_as_root=True,
-                                 check_exit_code=False,
-                                 root_helper=self._root_helper)
-        return out.strip() == "wwid '" + wwid + "' added"
-
-    def multipath_add_path(self, realpath):
-        """Add a path to multipathd for monitoring.
-
-        This has the effect of multipathd checking an already checked device
-        for multipath.
-
-        Together with `multipath_add_wwid` we can create a multipath when
-        there's only 1 path.
-        """
-        stdout, stderr = self._execute('multipathd', 'add', 'path', realpath,
-                                       run_as_root=True, timeout=5,
-                                       check_exit_code=False,
-                                       root_helper=self._root_helper)
-        return stdout.strip() == 'ok'

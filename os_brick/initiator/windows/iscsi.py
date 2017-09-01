@@ -18,7 +18,7 @@ from os_win import utilsfactory
 from oslo_log import log as logging
 
 from os_brick import exception
-from os_brick.i18n import _
+from os_brick.i18n import _, _LE, _LI, _LW
 from os_brick.initiator.connectors import base_iscsi
 from os_brick.initiator.windows import base as win_conn_base
 from os_brick import utils
@@ -38,23 +38,22 @@ class WindowsISCSIConnector(win_conn_base.BaseWindowsConnector,
         self.validate_initiators()
 
     def validate_initiators(self):
-        """Validates the list of requested initiator HBAs
-
-        Validates the list of requested initiator HBAs to be used
+        """Validates the list of requested initiator HBAs to be used
         when establishing iSCSI sessions.
         """
         valid_initiator_list = True
         if not self.initiator_list:
-            LOG.info("No iSCSI initiator was explicitly requested. "
-                     "The Microsoft iSCSI initiator will choose the "
-                     "initiator when establishing sessions.")
+            LOG.info(_LI("No iSCSI initiator was explicitly requested. "
+                         "The Microsoft iSCSI initiator will choose the "
+                         "initiator when establishing sessions."))
         else:
             available_initiators = self._iscsi_utils.get_iscsi_initiators()
             for initiator in self.initiator_list:
                 if initiator not in available_initiators:
-                    LOG.warning("The requested initiator %(req_initiator)s "
-                                "is not in the list of available initiators: "
-                                "%(avail_initiators)s.",
+                    msg = _LW("The requested initiator %(req_initiator)s "
+                              "is not in the list of available initiators: "
+                              "%(avail_initiators)s.")
+                    LOG.warning(msg,
                                 dict(req_initiator=initiator,
                                      avail_initiators=available_initiators))
                     valid_initiator_list = False
@@ -86,14 +85,14 @@ class WindowsISCSIConnector(win_conn_base.BaseWindowsConnector,
              target_iqn,
              target_lun) in self._get_all_paths(connection_properties):
             try:
-                LOG.info("Attempting to establish an iSCSI session to "
-                         "target %(target_iqn)s on portal %(target_portal)s "
-                         "accessing LUN %(target_lun)s using initiator "
-                         "%(initiator_name)s.",
-                         dict(target_portal=target_portal,
-                              target_iqn=target_iqn,
-                              target_lun=target_lun,
-                              initiator_name=initiator_name))
+                msg = _LI("Attempting to establish an iSCSI session to "
+                          "target %(target_iqn)s on portal %(target_portal)s "
+                          "accessing LUN %(target_lun)s using initiator "
+                          "%(initiator_name)s.")
+                LOG.info(msg, dict(target_portal=target_portal,
+                                   target_iqn=target_iqn,
+                                   target_lun=target_lun,
+                                   initiator_name=initiator_name))
                 self._iscsi_utils.login_storage_target(
                     target_lun=target_lun,
                     target_iqn=target_iqn,
@@ -119,7 +118,7 @@ class WindowsISCSIConnector(win_conn_base.BaseWindowsConnector,
                 if not self.use_multipath:
                     break
             except os_win_exc.OSWinException:
-                LOG.exception("Could not establish the iSCSI session.")
+                LOG.exception(_LE("Could not establish the iSCSI session."))
 
         if not volume_connected:
             raise exception.BrickException(
@@ -134,8 +133,7 @@ class WindowsISCSIConnector(win_conn_base.BaseWindowsConnector,
         return device_info
 
     @utils.trace
-    def disconnect_volume(self, connection_properties,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties):
         # We want to refresh the cached information first.
         self._diskutils.rescan_disks()
         for (target_portal,

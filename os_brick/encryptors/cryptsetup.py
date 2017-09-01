@@ -20,6 +20,7 @@ import os
 
 from os_brick.encryptors import base
 from os_brick import exception
+from os_brick.i18n import _LW, _LI
 from oslo_concurrency import processutils
 from oslo_log import log as logging
 
@@ -90,8 +91,8 @@ class CryptsetupEncryptor(base.VolumeEncryptor):
             # normal disk or multipath device), exit_code will be 1. In the
             # case, we will omit the warning message.
             if e.exit_code != 1:
-                LOG.warning('cryptsetup status %(dev_name)s exited '
-                            'abnormally (status %(exit_code)s): %(err)s',
+                LOG.warning(_LW('cryptsetup status %(dev_name)s exited '
+                                'abnormally (status %(exit_code)s): %(err)s'),
                             {"dev_name": dev_name, "exit_code": e.exit_code,
                              "err": e.stderr})
             return False
@@ -102,7 +103,8 @@ class CryptsetupEncryptor(base.VolumeEncryptor):
         return binascii.hexlify(key).decode('utf-8')
 
     def _open_volume(self, passphrase, **kwargs):
-        """Open the LUKS partition on the volume using passphrase.
+        """Opens the LUKS partition on the volume using the specified
+        passphrase.
 
         :param passphrase: the passphrase used to access the volume
         """
@@ -128,7 +130,6 @@ class CryptsetupEncryptor(base.VolumeEncryptor):
 
     def _get_mangled_passphrase(self, key):
         """Convert the raw key into a list of unsigned int's and then a string
-
         """
         # NOTE(lyarwood): This replicates the methods used prior to Newton to
         # first encode the passphrase as a list of unsigned int's before
@@ -139,7 +140,8 @@ class CryptsetupEncryptor(base.VolumeEncryptor):
         return ''.join(hex(x).replace('0x', '') for x in encoded_key)
 
     def attach_volume(self, context, **kwargs):
-        """Shadow the device and pass an unencrypted version to the instance.
+        """Shadows the device and passes an unencrypted version to the
+        instance.
 
         Transparent disk encryption is achieved by mounting the volume via
         dm-crypt and passing the resulting device to the instance. The
@@ -155,9 +157,9 @@ class CryptsetupEncryptor(base.VolumeEncryptor):
             if e.exit_code == 2:
                 # NOTE(lyarwood): Workaround bug#1633518 by attempting to use
                 # a mangled passphrase to open the device..
-                LOG.info("Unable to open %s with the current passphrase, "
-                         "attempting to use a mangled passphrase to open "
-                         "the volume.", self.dev_path)
+                LOG.info(_LI("Unable to open %s with the current passphrase, "
+                             "attempting to use a mangled passphrase to open "
+                             "the volume."), self.dev_path)
                 self._open_volume(self._get_mangled_passphrase(key), **kwargs)
 
         # modify the original symbolic link to refer to the decrypted device

@@ -14,6 +14,7 @@
 #    under the License.
 
 from os_brick.encryptors import nop
+from os_brick.i18n import _LE, _LW
 
 from oslo_log import log as logging
 from oslo_utils import importutils
@@ -62,14 +63,14 @@ def get_volume_encryptor(root_helper,
     if location and location.lower() == 'front-end':  # case insensitive
         provider = kwargs.get('provider')
 
-        # TODO(lyarwood): Remove the following in Queens and raise an
+        # TODO(lyarwood): Remove the following in Pike and raise an
         # ERROR if provider is not a key in SUPPORTED_ENCRYPTION_PROVIDERS.
         # Until then continue to allow both the class name and path to be used.
         if provider in LEGACY_PROVIDER_CLASS_TO_FORMAT_MAP:
-            LOG.warning("Use of the in tree encryptor class %(provider)s"
-                        " by directly referencing the implementation class"
-                        " will be blocked in the Queens release of"
-                        " os-brick.", {'provider': provider})
+            LOG.warning(_LW("Use of the in tree encryptor class %(provider)s"
+                            " by directly referencing the implementation class"
+                            " will be blocked in the Pike release of"
+                            " os-brick."), {'provider': provider})
             provider = LEGACY_PROVIDER_CLASS_TO_FORMAT_MAP[provider]
 
         if provider in FORMAT_TO_FRONTEND_ENCRYPTOR_MAP:
@@ -77,9 +78,9 @@ def get_volume_encryptor(root_helper,
         elif provider is None:
             provider = "os_brick.encryptors.nop.NoOpEncryptor"
         else:
-            LOG.warning("Use of the out of tree encryptor class "
-                        "%(provider)s will be blocked with the Queens "
-                        "release of os-brick.", {'provider': provider})
+            LOG.warning(_LW("Use of the out of tree encryptor class "
+                            "%(provider)s will be blocked with the Pike "
+                            "release of os-brick."), {'provider': provider})
 
         try:
             encryptor = importutils.import_object(
@@ -90,7 +91,7 @@ def get_volume_encryptor(root_helper,
                 execute,
                 **kwargs)
         except Exception as e:
-            LOG.error("Error instantiating %(provider)s: %(exception)s",
+            LOG.error(_LE("Error instantiating %(provider)s: %(exception)s"),
                       {'provider': provider, 'exception': e})
             raise
 
@@ -110,11 +111,12 @@ def get_encryption_metadata(context, volume_api, volume_id, connection_info):
             metadata = volume_api.get_volume_encryption_metadata(context,
                                                                  volume_id)
             if not metadata:
-                LOG.warning('Volume %s should be encrypted but there is no '
-                            'encryption metadata.', volume_id)
+                LOG.warning(_LW(
+                    'Volume %s should be encrypted but there is no '
+                    'encryption metadata.'), volume_id)
         except Exception as e:
-            LOG.error("Failed to retrieve encryption metadata for "
-                      "volume %(volume_id)s: %(exception)s",
+            LOG.error(_LE("Failed to retrieve encryption metadata for "
+                          "volume %(volume_id)s: %(exception)s"),
                       {'volume_id': volume_id, 'exception': e})
             raise
 

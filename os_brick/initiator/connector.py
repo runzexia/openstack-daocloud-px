@@ -43,20 +43,18 @@ synchronized = lockutils.synchronized_with_prefix('os-brick-')
 
 DEVICE_SCAN_ATTEMPTS_DEFAULT = 3
 MULTIPATH_ERROR_REGEX = re.compile("\w{3} \d+ \d\d:\d\d:\d\d \|.*$")
+MULTIPATH_DEV_CHECK_REGEX = re.compile("\s+dm-\d+\s+")
 MULTIPATH_PATH_CHECK_REGEX = re.compile("\s+\d+:\d+:\d+:\d+\s+")
 
 PLATFORM_ALL = 'ALL'
 PLATFORM_x86 = 'X86'
 PLATFORM_S390 = 'S390'
-PLATFORM_PPC64 = 'PPC64'
 OS_TYPE_ALL = 'ALL'
 OS_TYPE_LINUX = 'LINUX'
 OS_TYPE_WINDOWS = 'WIN'
 
 S390X = "s390x"
 S390 = "s390"
-PPC64 = "ppc64"
-PPC64LE = "ppc64le"
 
 ISCSI = "ISCSI"
 ISER = "ISER"
@@ -85,8 +83,6 @@ connector_list = [
     'os_brick.initiator.connectors.fibre_channel.FibreChannelConnector',
     ('os_brick.initiator.connectors.fibre_channel_s390x.'
      'FibreChannelConnectorS390X'),
-    ('os_brick.initiator.connectors.fibre_channel_ppc64.'
-     'FibreChannelConnectorPPC64'),
     'os_brick.initiator.connectors.aoe.AoEConnector',
     'os_brick.initiator.connectors.remotefs.RemoteFsConnector',
     'os_brick.initiator.connectors.rbd.RBDConnector',
@@ -102,8 +98,7 @@ connector_list = [
     'os_brick.initiator.windows.iscsi.WindowsISCSIConnector',
     'os_brick.initiator.windows.fibre_channel.WindowsFCConnector',
     'os_brick.initiator.windows.smbfs.WindowsSMBFSConnector',
-    'os_brick.initiator.connectors.vrtshyperscale.HyperScaleConnector',
-    'os_brick.initiator.connectors.portworx.PXConnector',
+    'os_brick.initiator.connectors.portworx.PXConnector'
 ]
 
 # Mappings used to determine who to contruct in the factory
@@ -149,10 +144,9 @@ _connector_mapping_linux = {
         'os_brick.initiator.connectors.vmware.VmdkConnector',
     initiator.GPFS:
         'os_brick.initiator.connectors.gpfs.GPFSConnector',
-    initiator.VERITAS_HYPERSCALE:
-        'os_brick.initiator.connectors.vrtshyperscale.HyperScaleConnector',
     initiator.PX:
         'os_brick.initiator.connectors.portworx.PXConnector'
+
 }
 
 # Mapping for the S390X platform
@@ -160,25 +154,6 @@ _connector_mapping_linux_s390x = {
     initiator.FIBRE_CHANNEL:
         'os_brick.initiator.connectors.fibre_channel_s390x.'
         'FibreChannelConnectorS390X',
-    initiator.DRBD:
-        'os_brick.initiator.connectors.drbd.DRBDConnector',
-    initiator.NFS:
-        'os_brick.initiator.connectors.remotefs.RemoteFsConnector',
-    initiator.ISCSI:
-        'os_brick.initiator.connectors.iscsi.ISCSIConnector',
-    initiator.LOCAL:
-        'os_brick.initiator.connectors.local.LocalConnector',
-    initiator.RBD:
-        'os_brick.initiator.connectors.rbd.RBDConnector',
-    initiator.GPFS:
-        'os_brick.initiator.connectors.gpfs.GPFSConnector',
-}
-
-# Mapping for the PPC64 platform
-_connector_mapping_linux_ppc64 = {
-    initiator.FIBRE_CHANNEL:
-        ('os_brick.initiator.connectors.fibre_channel_ppc64.'
-         'FibreChannelConnectorPPC64'),
     initiator.DRBD:
         'os_brick.initiator.connectors.drbd.DRBDConnector',
     initiator.NFS:
@@ -283,9 +258,6 @@ class InitiatorConnector(object):
             _mapping = _connector_mapping_windows
         elif arch in (initiator.S390, initiator.S390X):
             _mapping = _connector_mapping_linux_s390x
-        elif arch in (initiator.PPC64, initiator.PPC64LE):
-            _mapping = _connector_mapping_linux_ppc64
-
         else:
             _mapping = _connector_mapping_linux
 

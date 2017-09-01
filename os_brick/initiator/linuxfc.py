@@ -20,6 +20,7 @@ import os
 from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
 
+from os_brick.i18n import _LE, _LW
 from os_brick.initiator import linuxscsi
 
 LOG = logging.getLogger(__name__)
@@ -56,9 +57,10 @@ class LinuxFibreChannel(linuxscsi.LinuxSCSI):
             return [line.split('/')[4].split(':')[1:]
                     for line in out.split('\n') if line.startswith(path)]
         except Exception as exc:
-            LOG.debug('Could not get HBA channel and SCSI target ID, path: '
-                      '%(path)s, reason: %(reason)s', {'path': path,
-                                                       'reason': exc})
+            LOG.error(_LE('Could not get HBA channel and SCSI target ID, '
+                          'path: %(path)s, reason: %(reason)s'),
+                      {'path': path,
+                       'reason': exc})
             return None
 
     def rescan_hosts(self, hbas, target_lun):
@@ -99,13 +101,13 @@ class LinuxFibreChannel(linuxscsi.LinuxSCSI):
             # and systool is not installed
             # 96 = nova.cmd.rootwrap.RC_NOEXECFOUND:
             if exc.exit_code == 96:
-                LOG.warning("systool is not installed")
+                LOG.warning(_LW("systool is not installed"))
             return []
         except OSError as exc:
             # This handles the case where rootwrap is NOT used
             # and systool is not installed
             if exc.errno == errno.ENOENT:
-                LOG.warning("systool is not installed")
+                LOG.warning(_LW("systool is not installed"))
             return []
 
         # No FC HBAs were found
@@ -228,8 +230,8 @@ class LinuxFibreChannelS390X(LinuxFibreChannel):
             try:
                 self.echo_scsi_command(zfcp_device_command, "1")
             except putils.ProcessExecutionError as exc:
-                LOG.warning("port_rescan call for s390 failed exit"
-                            " %(code)s, stderr %(stderr)s",
+                LOG.warning(_LW("port_rescan call for s390 failed exit"
+                                " %(code)s, stderr %(stderr)s"),
                             {'code': exc.exit_code, 'stderr': exc.stderr})
 
         zfcp_device_command = ("/sys/bus/ccw/drivers/zfcp/%s/%s/unit_add" %
@@ -238,8 +240,8 @@ class LinuxFibreChannelS390X(LinuxFibreChannel):
         try:
             self.echo_scsi_command(zfcp_device_command, lun)
         except putils.ProcessExecutionError as exc:
-            LOG.warning("unit_add call for s390 failed exit %(code)s, "
-                        "stderr %(stderr)s",
+            LOG.warning(_LW("unit_add call for s390 failed exit %(code)s, "
+                            "stderr %(stderr)s"),
                         {'code': exc.exit_code, 'stderr': exc.stderr})
 
     def deconfigure_scsi_device(self, device_number, target_wwn, lun):
@@ -261,54 +263,6 @@ class LinuxFibreChannelS390X(LinuxFibreChannel):
         try:
             self.echo_scsi_command(zfcp_device_command, lun)
         except putils.ProcessExecutionError as exc:
-            LOG.warning("unit_remove call for s390 failed exit %(code)s, "
-                        "stderr %(stderr)s",
+            LOG.warning(_LW("unit_remove call for s390 failed exit %(code)s, "
+                            "stderr %(stderr)s"),
                         {'code': exc.exit_code, 'stderr': exc.stderr})
-
-
-class LinuxFibreChannelPPC64(LinuxFibreChannel):
-
-    def _get_hba_channel_scsi_target(self, hba, wwpn):
-        """Try to get the HBA channel and SCSI target for an HBA.
-
-        This method works for Fibre Channel targets iterating over all the
-        target wwpn port and finding the c, t, l. so caller should expect us to
-        return either None or an empty list.
-        """
-        # Leave only the number from the host_device field (ie: host6)
-        host_device = hba['host_device']
-        if host_device and len(host_device) > 4:
-            host_device = host_device[4:]
-        path = '/sys/class/fc_transport/target%s:' % host_device
-        cmd = 'grep -l %(wwpn)s %(path)s*/port_name' % {'wwpn': wwpn,
-                                                        'path': path}
-        try:
-            out, _err = self._execute(cmd, shell=True)
-            return [line.split('/')[4].split(':')[1:]
-                    for line in out.split('\n') if line.startswith(path)]
-        except Exception as exc:
-            LOG.error("Could not get HBA channel and SCSI target ID, "
-                      "reason: %s", exc)
-            return None
-
-    def rescan_hosts(self, hbas, target_lun):
-        for hba in hbas:
-            # Try to get HBA channel and SCSI target to use as filters
-            for wwpn in hba['target_wwn']:
-                cts = self._get_hba_channel_scsi_target(hba, wwpn)
-                # If we couldn't get the channel and target use wildcards
-                if not cts:
-                    cts = [('-', '-')]
-                for hba_channel, target_id in cts:
-                    LOG.debug('Scanning host %(host)s (wwpn: %(wwpn)s, c: '
-                              '%(channel)s, t: %(target)s, l: %(lun)s)',
-                              {'host': hba['host_device'],
-                               'wwpn': hba['target_wwn'],
-                               'channel': hba_channel,
-                               'target': target_id,
-                               'lun': target_lun})
-                    self.echo_scsi_command(
-                        "/sys/class/scsi_host/%s/scan" % hba['host_device'],
-                        "%(c)s %(t)s %(l)s" % {'c': hba_channel,
-                                               't': target_id,
-                                               'l': target_lun})

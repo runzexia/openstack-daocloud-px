@@ -14,6 +14,7 @@
 #    under the License.
 
 from os_brick.encryptors import cryptsetup
+from os_brick.i18n import _LI, _LW
 from os_brick.privileged import rootwrap as priv_rootwrap
 from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
@@ -37,8 +38,8 @@ def is_luks(root_helper, device, execute=None):
                 check_exit_code=True)
         return True
     except putils.ProcessExecutionError as e:
-        LOG.warning("isLuks exited abnormally (status %(exit_code)s): "
-                    "%(stderr)s",
+        LOG.warning(_LW("isLuks exited abnormally (status %(exit_code)s): "
+                        "%(stderr)s"),
                     {"exit_code": e.exit_code, "stderr": e.stderr})
         return False
 
@@ -87,7 +88,8 @@ class LuksEncryptor(cryptsetup.CryptsetupEncryptor):
                       attempts=3)
 
     def _open_volume(self, passphrase, **kwargs):
-        """Opens the LUKS partition on the volume using passphrase.
+        """Opens the LUKS partition on the volume using the specified
+        passphrase.
 
         :param passphrase: the passphrase used to access the volume
         """
@@ -136,7 +138,8 @@ class LuksEncryptor(cryptsetup.CryptsetupEncryptor):
         LOG.debug("%s mangled passphrase successfully replaced", self.dev_path)
 
     def attach_volume(self, context, **kwargs):
-        """Shadow the device and pass an unencrypted version to the instance.
+        """Shadows the device and passes an unencrypted version to the
+        instance.
 
         Transparent disk encryption is achieved by mounting the volume via
         dm-crypt and passing the resulting device to the instance. The
@@ -154,8 +157,8 @@ class LuksEncryptor(cryptsetup.CryptsetupEncryptor):
                                                 self.dev_path,
                                                 execute=self._execute):
                 # the device has never been formatted; format it and try again
-                LOG.info("%s is not a valid LUKS device;"
-                         " formatting device for first use",
+                LOG.info(_LI("%s is not a valid LUKS device;"
+                             " formatting device for first use"),
                          self.dev_path)
                 self._format_volume(passphrase, **kwargs)
                 self._open_volume(passphrase, **kwargs)
@@ -163,9 +166,9 @@ class LuksEncryptor(cryptsetup.CryptsetupEncryptor):
                 # NOTE(lyarwood): Workaround bug#1633518 by replacing any
                 # mangled passphrases that are found on the volume.
                 # TODO(lyarwood): Remove workaround during R.
-                LOG.warning("%s is not usable with the current "
-                            "passphrase, attempting to use a mangled "
-                            "passphrase to open the volume.",
+                LOG.warning(_LW("%s is not usable with the current "
+                                "passphrase, attempting to use a mangled "
+                                "passphrase to open the volume."),
                             self.dev_path)
                 self._unmangle_volume(key, passphrase, **kwargs)
                 self._open_volume(passphrase, **kwargs)

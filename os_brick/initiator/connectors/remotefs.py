@@ -14,6 +14,7 @@
 
 from oslo_log import log as logging
 
+from os_brick.i18n import _LW
 from os_brick import initiator
 from os_brick.initiator.connectors import base
 from os_brick.remotefs import remotefs
@@ -40,13 +41,11 @@ class RemoteFsConnector(base.BaseLinuxConnector):
                     kwargs.get(mount_type_lower + '_mount_point_base') or
                     mount_point_base)
         else:
-            LOG.warning("Connection details not present."
-                        " RemoteFsClient may not initialize properly.")
+            LOG.warning(_LW("Connection details not present."
+                            " RemoteFsClient may not initialize properly."))
 
         if mount_type_lower == 'scality':
             cls = remotefs.ScalityRemoteFsClient
-        elif mount_type_lower == 'vzstorage':
-            cls = remotefs.VZStorageRemoteFSClient
         else:
             cls = remotefs.RemoteFsClient
         self._remotefsclient = cls(mount_type, root_helper, execute=execute,
@@ -105,8 +104,7 @@ class RemoteFsConnector(base.BaseLinuxConnector):
         return {'path': path}
 
     @utils.trace
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """No need to do anything to disconnect a volume in a filesystem.
 
         :param connection_properties: The dictionary that describes all

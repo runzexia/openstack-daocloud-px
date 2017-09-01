@@ -2,10 +2,10 @@
 
 """Libvirt volume driver for PX."""
 from oslo_log import log as logging
-
 import nova.conf
-
 from nova.virt.libvirt.volume import volume as libvirt_volume
+from os_brick.initiator import connector
+from nova import utils
 
 LOG = logging.getLogger(__name__)
 
@@ -21,6 +21,9 @@ class LibvirtPXVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
     def __init__(self, host):
         super(LibvirtPXVolumeDriver, self).__init__(host,
                                                         is_block_dev=False)
+        self.connector = connector.InitiatorConnector.factory(
+           'PX', utils.get_root_helper(),
+           device_scan_attempts=CONF.libvirt.num_iscsi_scan_tries)
 
     def get_config(self, connection_info, disk_info):
         conf = super(LibvirtPXVolumeDriver, self).get_config(
@@ -35,7 +38,7 @@ class LibvirtPXVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
         LOG.warning("connect_volume_step1")
         LOG.warning(connection_info)
         LOG.warning(disk_info)
-        disk_info['path'] = "/dev/pxd/pxd576325260945142478"
+        disk_info['path'] = self.connector.connect_volume(connection_info['data'])
         connection_info['data']['device_path'] = disk_info['path']
 
     def disconnect_volume(self, connection_info, disk_dev):

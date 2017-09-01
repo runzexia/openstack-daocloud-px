@@ -21,8 +21,8 @@ from oslo_log import log as logging
 from oslo_utils import fileutils
 from oslo_utils import netutils
 
+from os_brick.i18n import _, _LE
 from os_brick import exception
-from os_brick.i18n import _
 from os_brick import initiator
 from os_brick.initiator.connectors import base
 from os_brick.initiator import linuxrbd
@@ -69,31 +69,20 @@ class RBDConnector(base.BaseLinuxConnector):
             return host
         return list(map(_sanitize_host, hosts))
 
-    def _check_or_get_keyring_contents(self, keyring, cluster_name, user):
-        try:
-            if keyring is None:
-                keyring_path = ("/etc/ceph/%s.client.%s.keyring" %
-                                (cluster_name, user))
-                with open(keyring_path, 'r') as keyring_file:
-                    keyring = keyring_file.read()
-            return keyring
-        except IOError:
-            msg = (_("Keyring path %s is not readable.") % (keyring_path))
-            raise exception.BrickException(msg=msg)
-
     def _create_ceph_conf(self, monitor_ips, monitor_ports,
-                          cluster_name, user, keyring):
+                          cluster_name, user):
         monitors = ["%s:%s" % (ip, port) for ip, port in
                     zip(self._sanitize_mon_hosts(monitor_ips), monitor_ports)]
         mon_hosts = "mon_host = %s" % (','.join(monitors))
 
-        keyring = self._check_or_get_keyring_contents(keyring, cluster_name,
-                                                      user)
-
+        client_section = "[client.%s]" % user
+        keyring = ("keyring = /etc/ceph/%s.client.%s.keyring" %
+                   (cluster_name, user))
         try:
             fd, ceph_conf_path = tempfile.mkstemp(prefix="brickrbd_")
             with os.fdopen(fd, 'w') as conf_file:
-                conf_file.writelines([mon_hosts, "\n", keyring, "\n"])
+                conf_file.writelines([mon_hosts, "\n",
+                                      client_section, "\n", keyring])
             return ceph_conf_path
         except IOError:
             msg = (_("Failed to write data to %s.") % (ceph_conf_path))
@@ -106,44 +95,22 @@ class RBDConnector(base.BaseLinuxConnector):
             cluster_name = connection_properties.get('cluster_name')
             monitor_ips = connection_properties.get('hosts')
             monitor_ports = connection_properties.get('ports')
-            keyring = connection_properties.get('keyring')
         except IndexError:
             msg = _("Connect volume failed, malformed connection properties")
             raise exception.BrickException(msg=msg)
 
         conf = self._create_ceph_conf(monitor_ips, monitor_ports,
-                                      str(cluster_name), user,
-                                      keyring)
+                                      str(cluster_name), user)
         try:
             rbd_client = linuxrbd.RBDClient(user, pool, conffile=conf,
                                             rbd_cluster_name=str(cluster_name))
             rbd_volume = linuxrbd.RBDVolume(rbd_client, volume)
             rbd_handle = linuxrbd.RBDVolumeIOWrapper(
                 linuxrbd.RBDImageMetadata(rbd_volume, pool, user, conf))
-        except Exception:
+        finally:
             fileutils.delete_if_exists(conf)
-            raise
 
         return rbd_handle
-
-    def _get_rbd_args(self, connection_properties):
-        try:
-            user = connection_properties['auth_username']
-            monitor_ips = connection_properties.get('hosts')
-            monitor_ports = connection_properties.get('ports')
-        except KeyError:
-            msg = _("Connect volume failed, malformed connection properties")
-            raise exception.BrickException(msg=msg)
-
-        args = ['--id', user]
-        if monitor_ips and monitor_ports:
-            monitors = ["%s:%s" % (ip, port) for ip, port in
-                        zip(
-                            self._sanitize_mon_hosts(monitor_ips),
-                            monitor_ports)]
-            for monitor in monitors:
-                args += ['--mon_host', monitor]
-        return args
 
     @staticmethod
     def get_rbd_device_name(pool, volume):
@@ -181,28 +148,18 @@ class RBDConnector(base.BaseLinuxConnector):
             # NOTE(e0ne): map volume to a block device
             # via the rbd kernel module.
             pool, volume = connection_properties['name'].split('/')
-            rbd_dev_path = RBDConnector.get_rbd_device_name(pool, volume)
-            if (not os.path.islink(rbd_dev_path) or
-                    not os.path.exists(os.path.realpath(rbd_dev_path))):
-                cmd = ['rbd', 'map', volume, '--pool', pool]
-                cmd += self._get_rbd_args(connection_properties)
-                self._execute(*cmd, root_helper=self._root_helper,
-                              run_as_root=True)
-            else:
-                LOG.debug('volume %(vol)s is already mapped to local'
-                          ' device %(dev)s',
-                          {'vol': volume,
-                           'dev': os.path.realpath(rbd_dev_path)})
+            cmd = ['rbd', 'map', volume, '--pool', pool]
+            self._execute(*cmd, root_helper=self._root_helper,
+                          run_as_root=True)
 
-            return {'path': rbd_dev_path,
+            return {'path': RBDConnector.get_rbd_device_name(pool, volume),
                     'type': 'block'}
 
         rbd_handle = self._get_rbd_handle(connection_properties)
         return {'path': rbd_handle}
 
     @utils.trace
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """Disconnect a volume.
 
         :param connection_properties: The dictionary that describes all
@@ -217,14 +174,12 @@ class RBDConnector(base.BaseLinuxConnector):
             pool, volume = connection_properties['name'].split('/')
             dev_name = RBDConnector.get_rbd_device_name(pool, volume)
             cmd = ['rbd', 'unmap', dev_name]
-            cmd += self._get_rbd_args(connection_properties)
             self._execute(*cmd, root_helper=self._root_helper,
                           run_as_root=True)
         else:
             if device_info:
                 rbd_handle = device_info.get('path', None)
                 if rbd_handle is not None:
-                    fileutils.delete_if_exists(rbd_handle.rbd_conf)
                     rbd_handle.close()
 
     def check_valid_device(self, path, run_as_root=True):
@@ -239,7 +194,7 @@ class RBDConnector(base.BaseLinuxConnector):
         try:
             rbd_handle.read(4096)
         except Exception as e:
-            LOG.error("Failed to access RBD device handle: %(error)s",
+            LOG.error(_LE("Failed to access RBD device handle: %(error)s"),
                       {"error": e})
             return False
         finally:

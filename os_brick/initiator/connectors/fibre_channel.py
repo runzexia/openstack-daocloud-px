@@ -19,6 +19,7 @@ from oslo_log import log as logging
 from oslo_service import loopingcall
 import six
 
+from os_brick.i18n import _LE, _LI, _LW
 from os_brick import exception
 from os_brick import initiator
 from os_brick.initiator.connectors import base
@@ -104,8 +105,8 @@ class FibreChannelConnector(base.BaseLinuxConnector):
         if volume_paths:
             return self._linuxscsi.extend_volume(volume_paths)
         else:
-            LOG.warning("Couldn't find any volume paths on the host to "
-                        "extend volume for %(props)s",
+            LOG.warning(_LW("Couldn't find any volume paths on the host to "
+                            "extend volume for %(props)s"),
                         {'props': connection_properties})
             raise exception.VolumePathsNotFound()
 
@@ -132,17 +133,19 @@ class FibreChannelConnector(base.BaseLinuxConnector):
 
         if len(host_devices) == 0:
             # this is empty because we don't have any FC HBAs
-            LOG.warning("We are unable to locate any Fibre Channel devices")
+            LOG.warning(
+                _LW("We are unable to locate any Fibre Channel devices"))
             raise exception.NoFibreChannelHostsFound()
 
         # The /dev/disk/by-path/... node is not always present immediately
         # We only need to find the first device.  Once we see the first device
         # multipath will have any others.
         def _wait_for_device_discovery(host_devices):
+            tries = self.tries
             for device in host_devices:
                 LOG.debug("Looking for Fibre Channel dev %(device)s",
                           {'device': device})
-                if os.path.exists(device) and self.check_valid_device(device):
+                if os.path.exists(device):
                     self.host_device = device
                     # get the /dev/sdX device.  This is used
                     # to find the multipath device.
@@ -150,12 +153,12 @@ class FibreChannelConnector(base.BaseLinuxConnector):
                     raise loopingcall.LoopingCallDone()
 
             if self.tries >= self.device_scan_attempts:
-                LOG.error("Fibre Channel volume device not found.")
+                LOG.error(_LE("Fibre Channel volume device not found."))
                 raise exception.NoFibreChannelVolumeDeviceFound()
 
-            LOG.info("Fibre Channel volume device not yet found. "
-                     "Will rescan & retry.  Try number: %(tries)s.",
-                     {'tries': self.tries})
+            LOG.info(_LI("Fibre Channel volume device not yet found. "
+                         "Will rescan & retry.  Try number: %(tries)s."),
+                     {'tries': tries})
 
             self._linuxfc.rescan_hosts(hbas,
                                        connection_properties['target_lun'])
@@ -168,10 +171,11 @@ class FibreChannelConnector(base.BaseLinuxConnector):
             _wait_for_device_discovery, host_devices)
         timer.start(interval=2).wait()
 
+        tries = self.tries
         if self.host_device is not None and self.device_name is not None:
             LOG.debug("Found Fibre Channel volume %(name)s "
                       "(after %(tries)s rescans)",
-                      {'name': self.device_name, 'tries': self.tries})
+                      {'name': self.device_name, 'tries': tries})
 
         # find out the WWN of the device
         device_wwn = self._linuxscsi.get_scsi_wwn(self.host_device)
@@ -241,8 +245,7 @@ class FibreChannelConnector(base.BaseLinuxConnector):
 
     @utils.trace
     @synchronized('connect_volume')
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """Detach the volume from instance_name.
 
         :param connection_properties: The dictionary that describes all
@@ -257,18 +260,20 @@ class FibreChannelConnector(base.BaseLinuxConnector):
         """
 
         devices = []
-        wwn = None
         volume_paths = self.get_volume_paths(connection_properties)
-        mpath_path = None
+        wwn = None
         for path in volume_paths:
             real_path = self._linuxscsi.get_name_from_path(path)
-            if self.use_multipath and not mpath_path:
+            if not wwn:
                 wwn = self._linuxscsi.get_scsi_wwn(path)
-                mpath_path = self._linuxscsi.find_multipath_device_path(wwn)
-                if mpath_path:
-                    self._linuxscsi.flush_multipath_device(mpath_path)
             device_info = self._linuxscsi.get_device_info(real_path)
             devices.append(device_info)
+
+        if self.use_multipath:
+            # There is a bug in multipath where the flushing
+            # doesn't remove the entry if friendly names are on
+            # we'll try anyway.
+            self._linuxscsi.flush_multipath_device(wwn)
 
         LOG.debug("devices to remove = %s", devices)
         self._remove_devices(connection_properties, devices)

@@ -21,8 +21,8 @@ from oslo_concurrency import lockutils
 from oslo_log import log as logging
 import six
 
+from os_brick.i18n import _, _LI, _LE
 from os_brick import exception
-from os_brick.i18n import _
 from os_brick import initiator
 from os_brick.initiator.connectors import base
 from os_brick import utils
@@ -113,8 +113,7 @@ class DISCOConnector(base.BaseLinuxConnector):
 
     @utils.trace
     @synchronized('connect_volume')
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """Detach the volume from instance."""
         disco_id = connection_properties['disco_id']
         disco_dev = '/dev/dms%s' % (disco_id)
@@ -129,7 +128,7 @@ class DISCOConnector(base.BaseLinuxConnector):
                 msg = _("Detach volume failed")
                 raise exception.BrickException(message=msg)
         else:
-            LOG.info("Volume already detached from host")
+            LOG.info(_LI("Volume already detached from host"))
 
     def _mount_disco_volume(self, path, volume_id):
         """Send request to mount volume on physical host."""
@@ -147,7 +146,7 @@ class DISCOConnector(base.BaseLinuxConnector):
                 msg = _("Attach volume failed")
                 raise exception.BrickException(message=msg)
         else:
-            LOG.info("Volume already attached to host")
+            LOG.info(_LI("Volume already attached to host"))
 
     def _connect_tcp_socket(self, client_ip, client_port):
         """Connect to TCP socket."""
@@ -172,7 +171,7 @@ class DISCOConnector(base.BaseLinuxConnector):
                 break
 
         if sock is None:
-            LOG.error("Cannot connect TCP socket")
+            LOG.error(_LE("Cannot connect TCP socket"))
         return sock
 
     def _send_disco_vol_cmd(self, client_ip, client_port, op_code, vol_id):

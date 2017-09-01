@@ -21,6 +21,7 @@ from oslo_service import loopingcall
 from os_brick import exception
 from os_brick import initiator
 
+from os_brick.i18n import _LI
 from os_brick.initiator.connectors import base
 from os_brick import utils
 
@@ -103,8 +104,8 @@ class AoEConnector(base.BaseLinuxConnector):
             if waiting_status['tries'] >= self.device_scan_attempts:
                 raise exception.VolumeDeviceNotFound(device=aoe_path)
 
-            LOG.info("AoE volume not yet found at: %(path)s. "
-                     "Try number: %(tries)s",
+            LOG.info(_LI("AoE volume not yet found at: %(path)s. "
+                         "Try number: %(tries)s"),
                      {'path': aoe_device, 'tries': waiting_status['tries']})
 
             self._aoe_discover()
@@ -124,8 +125,7 @@ class AoEConnector(base.BaseLinuxConnector):
 
     @utils.trace
     @lockutils.synchronized('aoe_control', 'aoe-')
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         """Detach and flush the volume.
 
         :param connection_properties: The dictionary that describes all

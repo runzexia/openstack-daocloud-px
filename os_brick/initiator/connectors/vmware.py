@@ -237,8 +237,7 @@ class VmdkConnector(initiator_connector.InitiatorConnector):
                                   datacenter=dc_ref)
         session.wait_for_task(task)
 
-    def disconnect_volume(self, connection_properties, device_info,
-                          force=False, ignore_errors=False):
+    def disconnect_volume(self, connection_properties, device_info):
         tmp_file_path = device_info['path']
         if not os.path.exists(tmp_file_path):
             msg = _("Vmdk: %s not found.") % tmp_file_path
