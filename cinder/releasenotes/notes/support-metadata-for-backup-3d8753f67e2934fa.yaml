@@ -1,4 +1,0 @@
----
-features:
-  - Added metadata support for backup source. Now users can create/update
-    metadata for a specified backup.

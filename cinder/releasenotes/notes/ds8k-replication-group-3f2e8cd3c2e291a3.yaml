@@ -1,4 +1,0 @@
----
-features:
-  - |
-    Add replication consistency group support in DS8K cinder driver.
