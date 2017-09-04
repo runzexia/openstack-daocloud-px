@@ -28,10 +28,18 @@ class PXConnector(base.BaseLinuxConnector):
             *args, **kwargs
         )
         self.ATTACH_VOLUME = ["pxctl", "host", "attach"]
+        self.DETACH_VOLUME = ["pxctl", "host", "detach"]
 
     @utils.trace
     @lockutils.synchronized('px', 'px-')
     def connect_volume(self, connection_properties):
+        """Connect the volume.
+
+        :param connection_properties: The dictionary that describes all
+                                      of the target volume attributes.
+        :type connection_properties: dict
+        :returns: dict
+        """
         LOG.info("Connection Properties : %s",connection_properties)
         self.ATTACH_VOLUME.append(connection_properties['provider_id'])
         try:
@@ -41,7 +49,7 @@ class PXConnector(base.BaseLinuxConnector):
                      "stderr=%(err)s",
                      {'cmd': self.ATTACH_VOLUME, 'out': out, 'err': err})
         except putils.ProcessExecutionError as e:
-            msg = (_("Error querying sdc guid: %(err)s") % {'err': e.stderr})
+            msg = (_("Error querying pxctl host attach: %(err)s") % {'err': e.stderr})
             LOG.error(msg)
             raise exception.BrickException(message=msg)
         finally:
@@ -59,5 +67,29 @@ class PXConnector(base.BaseLinuxConnector):
 
         raise NotImplementedError
 
+    @utils.trace
+    @lockutils.synchronized('px', 'px-')
     def disconnect_volume(self, connection_properties, device_info):
-        pass
+        """Disconnect the  volume.
+
+        :param connection_properties: The dictionary that describes all
+                                      of the target volume attributes.
+        :type connection_properties: dict
+        :param device_info: historical difference, but same as connection_props
+        :type device_info: dict
+        """
+        LOG.info("Connection Properties : %s",connection_properties)
+        self.DETACH_VOLUME.append(connection_properties['provider_id'])
+        try:
+            (out, err) = self._execute(*self.DETACH_VOLUME, run_as_root=True,
+                                       root_helper=self._root_helper)
+            LOG.info("DeMap volume %(cmd)s: stdout=%(out)s "
+                     "stderr=%(err)s",
+                     {'cmd': self.ATTACH_VOLUME, 'out': out, 'err': err})
+        except putils.ProcessExecutionError as e:
+            msg = (_("Error querying pxctl host detach: %(err)s") % {'err': e.stderr})
+            LOG.error(msg)
+            raise exception.BrickException(message=msg)
+        finally:
+            self.DETACH_VOLUME.pop()
+        return '/dev/pxd/pxd'+connection_properties['provider_id']

@@ -42,6 +42,7 @@ class LibvirtPXVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
         connection_info['data']['device_path'] = disk_info['path']
 
     def disconnect_volume(self, connection_info, disk_dev):
-
+        self.connector.disconnect_volume(connection_info['data'], None)
+        LOG.info("Disconnected volume %s.", disk_dev)
         super(LibvirtPXVolumeDriver, self).disconnect_volume(
             connection_info, disk_dev)
