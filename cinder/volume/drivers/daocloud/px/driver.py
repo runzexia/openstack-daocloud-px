@@ -466,8 +466,9 @@ class PXDriver(driver.VolumeDriver):
         total_capacity_b = 0
         free_capacity_b = 0
         for res in response["Nodes"]:
-            total_capacity_b += res["NodeData"]["storage_stats"]["DiskTotal"]
-            free_capacity_b +=res["NodeData"]["storage_stats"]["DiskAvail"]
+            if 'NodeData' in res and res['NodeData'] != None:
+                total_capacity_b += res["NodeData"]["storage_stats"]["DiskTotal"]
+                free_capacity_b +=res["NodeData"]["storage_stats"]["DiskAvail"]
         stats['total_capacity_gb'] = self._convert_b_to_gib(total_capacity_b)
         stats['free_capacity_gb'] = self._convert_b_to_gib(free_capacity_b)
         self._stats = stats
