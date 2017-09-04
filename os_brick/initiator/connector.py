@@ -98,7 +98,7 @@ connector_list = [
     'os_brick.initiator.windows.iscsi.WindowsISCSIConnector',
     'os_brick.initiator.windows.fibre_channel.WindowsFCConnector',
     'os_brick.initiator.windows.smbfs.WindowsSMBFSConnector',
-    'os_brick.initiator.connectors.portworx.PXConnector'
+    'os_brick.initiator.connectors.portworx.PortworxConnector'
 ]
 
 # Mappings used to determine who to contruct in the factory
@@ -144,8 +144,8 @@ _connector_mapping_linux = {
         'os_brick.initiator.connectors.vmware.VmdkConnector',
     initiator.GPFS:
         'os_brick.initiator.connectors.gpfs.GPFSConnector',
-    initiator.PX:
-        'os_brick.initiator.connectors.portworx.PXConnector'
+    initiator.PORTWORX:
+        'os_brick.initiator.connectors.portworx.PortworxConnector'
 
 }
 

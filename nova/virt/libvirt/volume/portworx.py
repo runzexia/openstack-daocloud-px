@@ -12,21 +12,21 @@ LOG = logging.getLogger(__name__)
 CONF = nova.conf.CONF
 
 
-class LibvirtPXVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
+class LibvirtPortworxVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
     """Class PX Libvirt volume Driver
 
     Implements Libvirt part of volume driver for PX cinder driver.
     Uses the PX connector from the os-brick projects
     """
     def __init__(self, host):
-        super(LibvirtPXVolumeDriver, self).__init__(host,
-                                                        is_block_dev=False)
+        super(LibvirtPortworxVolumeDriver, self).__init__(host,
+                                                          is_block_dev=False)
         self.connector = connector.InitiatorConnector.factory(
-           'PX', utils.get_root_helper(),
+           'PORTWORX', utils.get_root_helper(),
            device_scan_attempts=CONF.libvirt.num_iscsi_scan_tries)
 
     def get_config(self, connection_info, disk_info):
-        conf = super(LibvirtPXVolumeDriver, self).get_config(
+        conf = super(LibvirtPortworxVolumeDriver, self).get_config(
             connection_info, disk_info)
         LOG.warning("get_config")
         LOG.warning(connection_info)
@@ -44,5 +44,5 @@ class LibvirtPXVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
     def disconnect_volume(self, connection_info, disk_dev):
         self.connector.disconnect_volume(connection_info['data'], None)
         LOG.info("Disconnected volume %s.", disk_dev)
-        super(LibvirtPXVolumeDriver, self).disconnect_volume(
+        super(LibvirtPortworxVolumeDriver, self).disconnect_volume(
             connection_info, disk_dev)

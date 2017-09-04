@@ -167,7 +167,7 @@ libvirt_volume_drivers = [
     'disco=nova.virt.libvirt.volume.disco.LibvirtDISCOVolumeDriver',
     'vzstorage='
         'nova.virt.libvirt.volume.vzstorage.LibvirtVZStorageVolumeDriver',
-    'px=nova.virt.libvirt.volume.portworx.LibvirtPXVolumeDriver',
+    'portworx=nova.virt.libvirt.volume.portworx.LibvirtPXVolumeDriver',
 ]
 
 

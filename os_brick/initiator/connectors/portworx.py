@@ -15,13 +15,13 @@ DEVICE_SCAN_ATTEMPTS_DEFAULT = 3
 synchronized = lockutils.synchronized_with_prefix('os-brick-')
 
 
-class PXConnector(base.BaseLinuxConnector):
+class PortworxConnector(base.BaseLinuxConnector):
     OK_STATUS_CODE = 200
 
     def __init__(self, root_helper, driver=None,
                  device_scan_attempts=initiator.DEVICE_SCAN_ATTEMPTS_DEFAULT,
                  *args, **kwargs):
-        super(PXConnector, self).__init__(
+        super(PortworxConnector, self).__init__(
             root_helper,
             driver=driver,
             device_scan_attempts=device_scan_attempts,
@@ -31,7 +31,7 @@ class PXConnector(base.BaseLinuxConnector):
         self.DETACH_VOLUME = ["pxctl", "host", "detach"]
 
     @utils.trace
-    @lockutils.synchronized('px', 'px-')
+    @lockutils.synchronized('portworx', 'portworx-')
     def connect_volume(self, connection_properties):
         """Connect the volume.
 
@@ -68,7 +68,7 @@ class PXConnector(base.BaseLinuxConnector):
         raise NotImplementedError
 
     @utils.trace
-    @lockutils.synchronized('px', 'px-')
+    @lockutils.synchronized('portworx', 'portworx-')
     def disconnect_volume(self, connection_properties, device_info):
         """Disconnect the  volume.
 

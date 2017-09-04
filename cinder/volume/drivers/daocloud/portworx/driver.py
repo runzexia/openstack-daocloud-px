@@ -4,13 +4,19 @@ from oslo_log import log as logging
 from cinder import interface
 from cinder.volume import driver
 import requests
+from os_brick.initiator import connector
 import json
 from six.moves import http_client
 from oslo_utils import units
 from cinder import exception
+from cinder.image import image_utils
+from cinder import utils
+import requests
+import six
 CONF = cfg.CONF
 
 LOG = logging.getLogger(__name__)
+BLOCK_SIZE = 32
 
 
 px_opts=[
@@ -33,13 +39,13 @@ CONF.register_opts(px_opts)
 
 
 @interface.volumedriver
-class PXDriver(driver.VolumeDriver):
+class PortworxDriver(driver.VolumeDriver):
 
     VERSION = "1.0.0"
 
     def __init__(self, *args, **kwargs):
 
-        super(PXDriver, self).__init__(*args, **kwargs)
+        super(PortworxDriver, self).__init__(*args, **kwargs)
         self.configuration.append_config_values(px_opts)
         self.server_ip = self.configuration.px_ip
         self.server_port = self.configuration.px_rest_server_port
@@ -47,13 +53,14 @@ class PXDriver(driver.VolumeDriver):
             'serverIP': self.server_ip,
             'serverPort': self.server_port,
         }
+        self.connector = connector.InitiatorConnector.factory(
+            'PORTWORX', utils.get_root_helper(),
+            self.configuration.num_volume_device_scan_tries
+        )
         LOG.info(self.configuration)
 
     def check_for_setup_error(self):
         LOG.info("check_for_setup_error")
-
-    def create_volume(self, volume):
-        LOG.info("create_volume")
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
@@ -165,14 +172,14 @@ class PXDriver(driver.VolumeDriver):
     def initialize_connection(self, volume, connector, **kwargs):
         """Initializes the connection and returns connection info.
 
-        The scaleio driver returns a driver_volume_type of 'px'.
+        The portworx driver returns a driver_volume_type of 'portworx'.
         """
 
         LOG.info("Connector is %s.", connector)
         LOG.info("Volume is %s",volume)
         connection_properties = dict(self.connection_properties)
         connection_properties['provider_id'] = volume['provider_id']
-        return {'driver_volume_type': 'px',
+        return {'driver_volume_type': 'portworx',
                 'data': connection_properties}
 
     def initialize_connection_snapshot(self, snapshot, connector, **kwargs):
@@ -447,9 +454,9 @@ class PXDriver(driver.VolumeDriver):
 
     def _update_volume_stats(self):
         stats = {}
-        stats['volume_backend_name'] = 'px'
+        stats['volume_backend_name'] = 'portworx'
         stats['driver_version'] = self.VERSION
-        stats['storage_protocol'] = 'px'
+        stats['storage_protocol'] = 'portworx'
         stats['vendor_name'] = 'DaoCloud'
         stats['free_capacity_gb'] = 0
         stats['total_capacity_gb'] = 0
@@ -500,7 +507,7 @@ class PXDriver(driver.VolumeDriver):
             "spec":{
                 "size":volume_size_b,
                 "format": 0,
-                "block_size": 32768,
+                "block_size": BLOCK_SIZE*units.Ki,
                 "ha_level": 1,
                 "cos": 1,
                 "io_priority": "medium",
@@ -524,3 +531,37 @@ class PXDriver(driver.VolumeDriver):
                  {'volname': volname, 'volid': volume.id})
 
         return {'provider_id': response['id'], 'size': volume["size"]}
+
+    def copy_image_to_volume(self, context, volume, image_service, image_id):
+        """Fetch the image from image_service and write it to the volume."""
+        LOG.info("portworx copy_image_to_volume volume: %(vol)s image service: "
+                 "%(service)s image id: %(id)s.",
+                 {'vol': volume,
+                  'service': six.text_type(image_service),
+                  'id': six.text_type(image_id)})
+
+        try:
+            image_utils.fetch_to_raw(context,
+                                     image_service,
+                                     image_id,
+                                     self._px_attach_volume(volume),
+                                     BLOCK_SIZE,
+                                     size=volume['size'])
+
+        finally:
+            self._px_detach_volume(volume)
+
+    def _px_attach_volume(self, volume):
+        """Call connector.connect_volume() and return the path. """
+        LOG.info("Calling os-brick to attach PX volume.")
+        connection_properties = dict(self.connection_properties)
+        connection_properties['provider_id'] = volume.provider_id
+        device_info = self.connector.connect_volume(connection_properties)
+        return device_info
+
+    def _px_detach_volume(self, volume):
+        """Call the connector.disconnect() """
+        LOG.info("Calling os-brick to detach PX volume.")
+        connection_properties = dict(self.connection_properties)
+        connection_properties['provider_id'] = volume.provider_id
+        self.connector.disconnect_volume(connection_properties, volume)
