@@ -84,8 +84,30 @@ class PortworxDriver(driver.VolumeDriver):
         LOG.info("create_volume_from_snapshot")
 
     def delete_volume(self, volume):
-        LOG.warning("delete_volume")
-        LOG.warning(volume)
+        LOG.info("delete_volume %s",volume)
+        volume_id = volume['provider_id']
+        req_vars = {'server_ip': self.server_ip,
+                    'server_port': self.server_port,
+                    'provider_id': volume_id}
+
+        request = ("http://%(server_ip)s:%(server_port)s"
+                   "/v1/osd-volumes/"
+                   "%(provider_id)s") % req_vars
+        r, response = self._execute_px_get_request(request)
+        LOG.info("get response %s" , response)
+
+        if 'id'in response[0] and 'attached_on' not in response[0]:
+            r, response = self._execute_px_delete_request(request)
+            LOG.info("delete volume %s",response)
+            if r.status_code != http_client.OK:
+                raise exception.VolumeBackendAPIException(data=response)
+            elif 'error' in response:
+                raise exception.VolumeAttached(data=response)
+        elif 'id' not in response[0] :
+            LOG.info("already deleted")
+            return
+        else:
+            raise exception.VolumeAttached(data=response)
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
@@ -434,6 +456,13 @@ class PortworxDriver(driver.VolumeDriver):
 
     def _execute_px_get_request(self, request):
         r = requests.get(
+            request)
+        r = self._check_response(r, request)
+        response = r.json()
+        return r, response
+
+    def _execute_px_delete_request(self, request):
+        r = requests.delete(
             request)
         r = self._check_response(r, request)
         response = r.json()
