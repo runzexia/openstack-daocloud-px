@@ -433,10 +433,6 @@ class PortworxDriver(driver.VolumeDriver):
         """
         LOG.info("delete_cgsnapshot")
 
-    def clone_image(self, volume, image_location, image_id, image_meta,
-                    image_service):
-        LOG.info("clone_image")
-        return None, False
 
     def get_pool(self, volume):
         """Return pool name where volume reside on.
@@ -576,6 +572,22 @@ class PortworxDriver(driver.VolumeDriver):
                                      self._px_attach_volume(volume),
                                      BLOCK_SIZE,
                                      size=volume['size'])
+
+        finally:
+            self._px_detach_volume(volume)
+
+    def copy_volume_to_image(self, context, volume, image_service, image_meta):
+        """Copy the volume to the specified image."""
+        LOG.info("Portworx copy_volume_to_image volume: %(vol)s image service: "
+                 "%(service)s image meta: %(meta)s.",
+                 {'vol': volume,
+                  'service': six.text_type(image_service),
+                  'meta': six.text_type(image_meta)})
+        try:
+            image_utils.upload_volume(context,
+                                      image_service,
+                                      image_meta,
+                                      self._px_attach_volume(volume))
 
         finally:
             self._px_detach_volume(volume)
