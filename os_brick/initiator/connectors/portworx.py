@@ -1,5 +1,4 @@
-
-
+import os
 from oslo_concurrency import lockutils
 from oslo_concurrency import processutils as putils
 from oslo_log import log as logging
@@ -48,6 +47,7 @@ class PortworxConnector(base.BaseLinuxConnector):
             LOG.info("Map volume %(cmd)s: stdout=%(out)s "
                      "stderr=%(err)s",
                      {'cmd': self.ATTACH_VOLUME, 'out': out, 'err': err})
+            self._wait_for_connect(connection_properties['provider_id'])
         except putils.ProcessExecutionError as e:
             msg = (_("Error querying pxctl host attach: %(err)s") % {'err': e.stderr})
             LOG.error(msg)
@@ -86,6 +86,7 @@ class PortworxConnector(base.BaseLinuxConnector):
             LOG.info("DeMap volume %(cmd)s: stdout=%(out)s "
                      "stderr=%(err)s",
                      {'cmd': self.ATTACH_VOLUME, 'out': out, 'err': err})
+            self._wait_for_disconnect(connection_properties['provider_id'])
         except putils.ProcessExecutionError as e:
             msg = (_("Error querying pxctl host detach: %(err)s") % {'err': e.stderr})
             LOG.error(msg)
@@ -93,3 +94,30 @@ class PortworxConnector(base.BaseLinuxConnector):
         finally:
             self.DETACH_VOLUME.pop()
         return '/dev/pxd/pxd'+connection_properties['provider_id']
+
+    @utils.retry(exceptions=exception.BrickException,
+                 retries=15,
+                 backoff_rate=1)
+    def _wait_for_connect(self, volume_id):
+        path = "/dev/pxd/pxd"+volume_id
+        if not os.path.exists(path):
+            msg = (
+                _("PX volume %(volume_id)s not found at "
+                  "expected path.") % {'volume_id': self.volume_id}
+            )
+
+            LOG.debug(msg)
+            raise exception.BrickException(message=msg)
+
+    @utils.retry(exceptions=exception.BrickException,
+                 retries=15,
+                 backoff_rate=1)
+    def _wait_for_disconnect(self, volume_id):
+        path = "/dev/pxd/pxd"+volume_id
+        if os.path.exists(path):
+            msg = (
+                _("PX volume %(volume_id)s  found at "
+                  "not expected path.") % {'volume_id': self.volume_id}
+            )
+            LOG.debug(msg)
+            raise exception.BrickException(message=msg)
