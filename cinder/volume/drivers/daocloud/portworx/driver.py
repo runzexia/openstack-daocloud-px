@@ -109,15 +109,16 @@ class PortworxDriver(driver.VolumeDriver):
         else:
             raise exception.VolumeAttached(data=response)
 
+    def delete_snapshot(self, snapshot):
+        """Deletes a ScaleIO snapshot."""
+        LOG.info("ScaleIO delete snapshot.")
+        return self.delete_volume(snapshot)
+
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
         LOG.info("create_snapshot")
         volume_id = snapshot.volume.provider_id
         return self._snapshot_volume(volume_id)
-
-    def delete_snapshot(self, snapshot):
-        """Deletes a snapshot."""
-        LOG.info("delete_snapshot")
 
     def local_path(self, volume):
         LOG.info("local_path")
