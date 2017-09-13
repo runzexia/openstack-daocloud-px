@@ -96,14 +96,14 @@ class PortworxDriver(driver.VolumeDriver):
         r, response = self._execute_px_get_request(request)
         LOG.info("get response %s" , response)
 
-        if 'id'in response[0] and 'attached_on' not in response[0]:
+        if response and 'id'in response[0] and 'attached_on' not in response[0]:
             r, response = self._execute_px_delete_request(request)
             LOG.info("delete volume %s",response)
             if r.status_code != http_client.OK:
                 raise exception.VolumeBackendAPIException(data=response)
             elif 'error' in response:
                 raise exception.VolumeAttached(data=response)
-        elif 'id' not in response[0] :
+        elif not response or'id' not in response[0]:
             LOG.info("already deleted")
             return
         else:
@@ -112,6 +112,8 @@ class PortworxDriver(driver.VolumeDriver):
     def create_snapshot(self, snapshot):
         """Creates a snapshot."""
         LOG.info("create_snapshot")
+        volume_id = snapshot.volume.provider_id
+        return self._snapshot_volume(volume_id)
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
@@ -606,3 +608,26 @@ class PortworxDriver(driver.VolumeDriver):
         connection_properties = dict(self.connection_properties)
         connection_properties['provider_id'] = volume.provider_id
         self.connector.disconnect_volume(connection_properties, volume)
+
+    def _snapshot_volume(self, vol_id):
+        LOG.info("Snapshot volume %(vol)s.",
+                 {'vol': vol_id})
+        params = {
+            "id": vol_id,
+            "locator": {}
+        }
+        req_vars = {'server_ip': self.server_ip,
+                    'server_port': self.server_port}
+        request = ("http://%(server_ip)s:%(server_port)s"
+                   "/v1/osd-snapshot") % req_vars
+        r, response = self._execute_px_post_request(params, request)
+        LOG.info("response %s",response)
+        if r.status_code != http_client.OK:
+            msg = (_("Failed creating snapshot for volume %(volname)s: "
+                     "%(response)s.") %
+                   {'volname': vol_id,
+                    'response': response['message']})
+            LOG.error(msg)
+            raise exception.VolumeBackendAPIException(data=msg)
+
+        return {'provider_id': response['volume_create_response']['id']}
