@@ -82,31 +82,60 @@ class PortworxDriver(driver.VolumeDriver):
         """
 
         LOG.info("create_volume_from_snapshot")
+        return self._snapshot_volume(snapshot.provider_id,volume.id)
 
     def delete_volume(self, volume):
-        LOG.info("delete_volume %s",volume)
-        volume_id = volume['provider_id']
+        LOG.info("delete_volume %s", volume)
+        if ('snapshot_id' not in volume) or (volume['snapshot_id'] is not None):
+            volume_id = volume['provider_id']
+            req_vars = {'server_ip': self.server_ip,
+                        'server_port': self.server_port}
+            request = ("http://%(server_ip)s:%(server_port)s"
+                       "/v1/osd-snapshot") % req_vars
+            r, response = self._execute_px_get_request(request)
+            LOG.info("get response %s" , response)
+            for one in response:
+                if one['id'] == volume_id and'attached_on' not in one:
+                    self._delete_volume(volume_id)
+                    return
+                elif one['id'] == volume_id:
+                    raise exception.VolumeAttached(data=response)
+
+            LOG.info("already deleted")
+            return
+        else:
+            volume_id = volume['provider_id']
+            req_vars = {'server_ip': self.server_ip,
+                        'server_port': self.server_port,
+                        'provider_id': volume_id}
+
+            request = ("http://%(server_ip)s:%(server_port)s"
+                       "/v1/osd-volumes/"
+                       "%(provider_id)s") % req_vars
+            r, response = self._execute_px_get_request(request)
+            LOG.info("get response %s" , response)
+            if response and 'id'in response[0] and 'attached_on' not in response[0] :
+                self._delete_volume(volume_id)
+                return
+            elif not response or'id' not in response[0]:
+                LOG.info("already deleted")
+                return
+            else:
+                raise exception.VolumeAttached(data=response)
+
+    def _delete_volume(self, vol_id):
         req_vars = {'server_ip': self.server_ip,
                     'server_port': self.server_port,
-                    'provider_id': volume_id}
+                    'provider_id': vol_id}
 
         request = ("http://%(server_ip)s:%(server_port)s"
                    "/v1/osd-volumes/"
                    "%(provider_id)s") % req_vars
-        r, response = self._execute_px_get_request(request)
-        LOG.info("get response %s" , response)
-
-        if response and 'id'in response[0] and 'attached_on' not in response[0]:
-            r, response = self._execute_px_delete_request(request)
-            LOG.info("delete volume %s",response)
-            if r.status_code != http_client.OK:
-                raise exception.VolumeBackendAPIException(data=response)
-            elif 'error' in response:
-                raise exception.VolumeAttached(data=response)
-        elif not response or'id' not in response[0]:
-            LOG.info("already deleted")
-            return
-        else:
+        r, response = self._execute_px_delete_request(request)
+        LOG.info("delete volume %s", response)
+        if r.status_code != http_client.OK:
+            raise exception.VolumeBackendAPIException(data=response)
+        elif 'error' in response:
             raise exception.VolumeAttached(data=response)
 
     def delete_snapshot(self, snapshot):
@@ -118,7 +147,7 @@ class PortworxDriver(driver.VolumeDriver):
         """Creates a snapshot."""
         LOG.info("create_snapshot")
         volume_id = snapshot.volume.provider_id
-        return self._snapshot_volume(volume_id)
+        return self._snapshot_volume(volume_id, snapshot.id)
 
     def local_path(self, volume):
         LOG.info("local_path")
@@ -132,17 +161,6 @@ class PortworxDriver(driver.VolumeDriver):
     def manage_existing(self, volume, existing_ref):
         msg = _("Manage existing volume not implemented.")
         LOG.info("manage_existing")
-
-    def revert_to_snapshot(self, context, volume, snapshot):
-        """Revert volume to snapshot.
-
-        Note: the revert process should not change the volume's
-        current size, that means if the driver shrank
-        the volume during the process, it should extend the
-        volume internally.
-        """
-        msg = _("Revert volume to snapshot not implemented.")
-        LOG.info("revert_to_snapshot")
 
     def manage_existing_get_size(self, volume, existing_ref):
         msg = _("Manage existing volume not implemented.")
@@ -610,12 +628,14 @@ class PortworxDriver(driver.VolumeDriver):
         connection_properties['provider_id'] = volume.provider_id
         self.connector.disconnect_volume(connection_properties, volume)
 
-    def _snapshot_volume(self, vol_id):
+    def _snapshot_volume(self, vol_id, snapname):
         LOG.info("Snapshot volume %(vol)s.",
                  {'vol': vol_id})
         params = {
             "id": vol_id,
-            "locator": {}
+            "locator": {
+                "name":snapname
+            }
         }
         req_vars = {'server_ip': self.server_ip,
                     'server_port': self.server_port}
@@ -630,5 +650,6 @@ class PortworxDriver(driver.VolumeDriver):
                     'response': response['message']})
             LOG.error(msg)
             raise exception.VolumeBackendAPIException(data=msg)
+        LOG.info('provider_id %s', response['volume_create_response']['id'])
 
         return {'provider_id': response['volume_create_response']['id']}
