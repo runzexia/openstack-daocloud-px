@@ -86,6 +86,7 @@ class PortworxDriver(driver.VolumeDriver):
 
     def delete_volume(self, volume):
         LOG.info("delete_volume %s", volume)
+        # delete snapshot or volume from snapshot
         if ('snapshot_id' not in volume) or (volume['snapshot_id'] is not None):
             volume_id = volume['provider_id']
             req_vars = {'server_ip': self.server_ip,
@@ -103,6 +104,7 @@ class PortworxDriver(driver.VolumeDriver):
 
             LOG.info("already deleted")
             return
+        # delete volume
         else:
             volume_id = volume['provider_id']
             req_vars = {'server_ip': self.server_ip,
@@ -123,6 +125,7 @@ class PortworxDriver(driver.VolumeDriver):
             else:
                 raise exception.VolumeAttached(data=response)
 
+    # delete request
     def _delete_volume(self, vol_id):
         req_vars = {'server_ip': self.server_ip,
                     'server_port': self.server_port,
@@ -454,7 +457,6 @@ class PortworxDriver(driver.VolumeDriver):
         """
         LOG.info("delete_cgsnapshot")
 
-
     def get_pool(self, volume):
         """Return pool name where volume reside on.
 
@@ -483,6 +485,18 @@ class PortworxDriver(driver.VolumeDriver):
             request)
         r = self._check_response(r, request)
         response = r.json()
+        return r, response
+
+    def _execute_px_post_request(self, params, request):
+        r = requests.post(
+            request,
+            data=json.dumps(params))
+        r = self._check_response(r, request, False, params)
+        response = None
+        try:
+            response = r.json()
+        except ValueError:
+            response = None
         return r, response
 
     def _check_response(self, response, request, is_get_request=True,
@@ -530,18 +544,6 @@ class PortworxDriver(driver.VolumeDriver):
     def _convert_b_to_gib(size):
         return int(math.ceil(float(size) / units.Gi))
 
-    def _execute_px_post_request(self, params, request):
-        r = requests.post(
-            request,
-            data=json.dumps(params))
-        r = self._check_response(r, request, False, params)
-        response = None
-        try:
-            response = r.json()
-        except ValueError:
-            response = None
-        return r, response
-
     def create_volume(self, volume):
         """Creates a PX volume."""
         volname = volume.id
@@ -556,7 +558,7 @@ class PortworxDriver(driver.VolumeDriver):
                 "block_size": BLOCK_SIZE*units.Ki,
                 "ha_level": 1,
                 "cos": 1,
-                "io_priority": "medium",
+                "io_priority": "high",
                 "dedupe": False,
                 "snapshot_interval": 0,
                 "shared": False,
@@ -578,6 +580,7 @@ class PortworxDriver(driver.VolumeDriver):
 
         return {'provider_id': response['id'], 'size': volume["size"]}
 
+    # attach -> fetch -> detach
     def copy_image_to_volume(self, context, volume, image_service, image_id):
         """Fetch the image from image_service and write it to the volume."""
         LOG.info("portworx copy_image_to_volume volume: %(vol)s image service: "
@@ -597,6 +600,7 @@ class PortworxDriver(driver.VolumeDriver):
         finally:
             self._px_detach_volume(volume)
 
+    # attach -> upload -> detach
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         LOG.info("Portworx copy_volume_to_image volume: %(vol)s image service: "
@@ -613,6 +617,7 @@ class PortworxDriver(driver.VolumeDriver):
         finally:
             self._px_detach_volume(volume)
 
+    # call os-brick to attach
     def _px_attach_volume(self, volume):
         """Call connector.connect_volume() and return the path. """
         LOG.info("Calling os-brick to attach PX volume.")
@@ -621,6 +626,7 @@ class PortworxDriver(driver.VolumeDriver):
         device_info = self.connector.connect_volume(connection_properties)
         return device_info
 
+    # call os-brick to detach
     def _px_detach_volume(self, volume):
         """Call the connector.disconnect() """
         LOG.info("Calling os-brick to detach PX volume.")
@@ -628,6 +634,7 @@ class PortworxDriver(driver.VolumeDriver):
         connection_properties['provider_id'] = volume.provider_id
         self.connector.disconnect_volume(connection_properties, volume)
 
+    # create snapshot request
     def _snapshot_volume(self, vol_id, snapname):
         LOG.info("Snapshot volume %(vol)s.",
                  {'vol': vol_id})
