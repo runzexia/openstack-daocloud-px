@@ -28,16 +28,14 @@ class LibvirtPortworxVolumeDriver(libvirt_volume.LibvirtBaseVolumeDriver):
     def get_config(self, connection_info, disk_info):
         conf = super(LibvirtPortworxVolumeDriver, self).get_config(
             connection_info, disk_info)
-        LOG.warning("get_config")
-        LOG.warning(connection_info)
+        LOG.info("get_config %s",connection_info)
         conf.source_type = 'block'
         conf.source_path = connection_info['data']['device_path']
         return conf
 
     def connect_volume(self, connection_info, disk_info):
-        LOG.warning("connect_volume_step1")
-        LOG.warning(connection_info)
-        LOG.warning(disk_info)
+        LOG.info("connect volume,connection info,%s", connection_info)
+        LOG.info("connect volume,disk info,%s", disk_info)
         disk_info['path'] = self.connector.connect_volume(connection_info['data'])
         connection_info['data']['device_path'] = disk_info['path']
 
